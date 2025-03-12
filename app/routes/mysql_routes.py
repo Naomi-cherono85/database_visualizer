@@ -1,10 +1,12 @@
-from fastapi import APIRouter
-from databse.mysql_db import get_mysql_connection
+from fastapi import APIRouter, Depends
+from ..database.mysql_db import get_mysql_connection
+from ..auth.schema import UserInDB
+from ..auth.Oauth2 import get_current_user
 
 router = APIRouter()
 
 @router.get("/tables")
-def list_tables():
+def list_tables(current_user: UserInDB = Depends(get_current_user)):
     try:
         conn = get_mysql_connection()
         cursor = conn.cursor()
@@ -17,7 +19,7 @@ def list_tables():
         return {"error": str(e)}
 
 @router.get("/table/{table_name}")
-def get_table_data(table_name: str):
+def get_table_data(table_name: str, current_user: UserInDB = Depends(get_current_user)):
     try:
         conn = get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
