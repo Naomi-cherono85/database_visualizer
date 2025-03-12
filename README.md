@@ -1,4 +1,4 @@
-# MySQL Visualization API
+# SQL Visualization API
 
 ## 📌 Overview
 This is a FastAPI-based backend service that connects to a MySQL database, allowing users to:
