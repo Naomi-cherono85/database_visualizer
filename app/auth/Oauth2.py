@@ -1,12 +1,14 @@
-from datetime import datetime,timedelta
-from fastapi import Depends, HTTPException
+from datetime import datetime, timedelta
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-import os
 from typing import Optional
-from .schema import Token, TokenData, UserCreate, UserInDB
-from ..utils import get_db_connection, verify_password
+from .schema import TokenData
+from ..models import User, SessionLocal
+from ..utils import verify_password
+import os
 import secrets
+
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
@@ -15,8 +17,15 @@ SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
+# Database Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# Utility functions
+# Utility Functions
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
@@ -27,22 +36,15 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def authenticate_user(username: str, password: str):
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-    try:
-        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
-        user = cursor.fetchone()
-        if not user:
-            return False
-        if not verify_password(password, user["hashed_password"]):
-            return False
-        return user
-    finally:
-        cursor.close()
-        connection.close()
+def authenticate_user(username: str, password: str, db = Depends(get_db)):
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(token: str = Depends(oauth2_scheme), db = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -57,14 +59,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise credentials_exception
     
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-    try:
-        cursor.execute("SELECT * FROM users WHERE username = %s", (token_data.username,))
-        user = cursor.fetchone()
-        if user is None:
-            raise credentials_exception
-        return UserInDB(**user)
-    finally:
-        cursor.close()
-        connection.close()
+    user = db.query(User).filter(User.username == token_data.username).first()
+    if user is None:
+        raise credentials_exception
+    return user
