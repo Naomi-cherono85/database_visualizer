@@ -1,27 +1,31 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 import mysql.connector
-import os
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict
+from .auth import router as auth_router
+from .routes import mysql_routes as mysql_router
+from .utils import get_db_connection
+from .auth.Oauth2 import get_current_user
+from .auth.schema import UserInDB
 
 app = FastAPI()
 
-# Function to establish database connection
-def get_db_connection():
-    try:
-        return mysql.connector.connect(
-            host=os.getenv("MYSQL_HOST", "127.0.0.1"),
-            user=os.getenv("MYSQL_USER", "root"),
-            password=os.getenv("MYSQL_PASSWORD", "8885"),
-            database=os.getenv("MYSQL_DATABASE", "my_visualization_tool")
-        )
-    except mysql.connector.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
+app.include_router(auth_router.router)
+app.include_router(mysql_router.router)
 
+# Add CORS middleware to allow cross-origin requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ✅ 1️⃣ List all tables in the database
 @app.get("/tables")
-def list_tables():
+def list_tables(current_user: UserInDB = Depends(get_current_user)):
     connection = get_db_connection()
     cursor = connection.cursor()
 
@@ -38,7 +42,7 @@ def list_tables():
 
 # ✅ 2️⃣ Get table columns and their data types
 @app.get("/tables/{table_name}/columns")
-def get_table_columns(table_name: str):
+def get_table_columns(table_name: str,current_user: UserInDB = Depends(get_current_user)):
     connection = get_db_connection()
     cursor = connection.cursor()
 
@@ -67,7 +71,7 @@ def get_table_columns(table_name: str):
 
 # ✅ 3️⃣ Get data from a specific table (default limit: 10)
 @app.get("/tables/{table_name}/data")
-def get_table_data(table_name: str, limit: int = 10):
+def get_table_data(table_name: str, current_user: UserInDB = Depends(get_current_user), limit: int = 10):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
 
@@ -87,7 +91,7 @@ class InsertData(BaseModel):
     data: Dict[str, str]  # Dictionary of column names and values
 
 @app.post("/tables/{table_name}/insert")
-def insert_data(table_name: str, insert_data: InsertData):
+def insert_data(table_name: str,  insert_data: InsertData, current_user: UserInDB = Depends(get_current_user)):
     connection = get_db_connection()
     cursor = connection.cursor()
 
