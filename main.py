@@ -1,10 +1,19 @@
 from fastapi import FastAPI, HTTPException
 import mysql.connector
+from fastapi.middleware.cors import CORSMiddleware
 import os
 from pydantic import BaseModel
 from typing import Dict
 
 app = FastAPI()
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Function to establish database connection
 def get_db_connection():
