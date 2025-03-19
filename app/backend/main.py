@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Form, Query, Depends
+from fastapi import FastAPI, HTTPException, Form, Query, Depends, Body, Request
+from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pymysql import MySQLError, connect, cursors
@@ -8,6 +9,7 @@ import uuid
 import csv
 import json
 import io
+from pathlib import Path
 
 app = FastAPI(title="MySQL Visualizer PRO", version="1.0.0")
 
@@ -46,26 +48,45 @@ class MySQLConnectionManager:
 
 mysql_manager = MySQLConnectionManager()
 
+BASE_DIR = Path(__file__).resolve().parent  # directory of main.py
+FRONTEND_DIR = BASE_DIR.parent / "frontend" / "templates"  # go up from "backend" to "app", then into "frontend/templates"
+
+@app.get("/")
+async def index():
+    file_path = FRONTEND_DIR / "index.html"
+    return FileResponse(str(file_path))
+
+
+# @app.post("/connect")
+# async def connect_mysql(
+#     host: str = Form(...),
+#     database: str = Form(...),
+#     username: str = Form(...),
+#     password: str = Form(...),
+#     port: int = Form(3306)
+# ):
+#     """Establish MySQL connection"""
+#     try:
+#         conn_id = mysql_manager.create_connection({
+#             'host': host,
+#             'database': database,
+#             'username': username,
+#             'password': password,
+#             'port': port
+#         })
+#         return {"connection_id": conn_id, "database": database}
+#     except HTTPException as e:
+#         return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+
+    
 @app.post("/connect")
-async def connect_mysql(
-    host: str = Form(...),
-    database: str = Form(...),
-    username: str = Form(...),
-    password: str = Form(...),
-    port: int = Form(3306)
-):
+async def connect_mysql(data: dict = Body(...)):
     """Establish MySQL connection"""
     try:
-        conn_id = mysql_manager.create_connection({
-            'host': host,
-            'database': database,
-            'username': username,
-            'password': password,
-            'port': port
-        })
-        return {"connection_id": conn_id, "database": database}
-    except HTTPException as e:
-        return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+        conn_id = mysql_manager.create_connection(data)
+        return {"connection_id": conn_id, "database": data['database']}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"detail": str(e)})
 
 @app.get("/tables")
 async def list_tables(connection_id: str):
@@ -77,8 +98,22 @@ async def list_tables(connection_id: str):
     with conn.cursor() as cursor:
         cursor.execute("SHOW TABLES")
         tables = [list(table.values())[0] for table in cursor.fetchall()]
-    return tables
+        return tables
 
+@app.get("/table-info/{table_name}")
+async def get_table_info(table_name: str, connection_id: str):
+    conn = mysql_manager.get_connection(connection_id)
+    if not conn:
+        raise HTTPException(400, "Invalid connection")
+    
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(f"DESCRIBE {table_name}")
+            columns = cursor.fetchall()
+            return {"columns": len(columns)}
+    except MySQLError as e:
+        raise HTTPException(400, f"MySQL Error: {e}")
+    
 @app.get("/table/{table_name}")
 async def get_table_data(
     table_name: str,
@@ -185,31 +220,36 @@ def export_csv(data, columns, table_name):
     writer = csv.DictWriter(csv_data, fieldnames=columns)
     writer.writeheader()
     writer.writerows(data)
+    csv_data.seek(0)
     return Response(
         content=csv_data.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={table_name}.csv"}
+        headers={
+            "Content-Disposition": f"attachment; filename={table_name}.csv",
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
     )
 
 def export_json(data, table_name):
     return Response(
-        content=json.dumps(data, default=str),
+        content=json.dumps(data, indent=4),
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename={table_name}.json"}
     )
-
 def export_sql(data, table_name, columns):
-    sql = [f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES"]
+    sql_data = io.StringIO()
+    sql_data.write(f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES\n")
     for row in data:
-        values = [f"'{str(v)}'" if not isinstance(v, (int, float)) else str(v) for v in row.values()]
-        sql.append(f"({', '.join(values)}),")
-    sql[-1] = sql[-1].rstrip(',') + ';'
+        values = ', '.join([f"'{v}'" if isinstance(v, str) else str(v) for v in row.values()])
+        sql_data.write(f"({values}),\n")
+    sql_data.seek(sql_data.tell() - 2)  
+    sql_data.write(";")  
+    sql_data.seek(0)
     return Response(
-        content="\n".join(sql),
-        media_type="text/sql",
+        content=sql_data.getvalue(),
+        media_type="application/sql",
         headers={"Content-Disposition": f"attachment; filename={table_name}.sql"}
     )
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

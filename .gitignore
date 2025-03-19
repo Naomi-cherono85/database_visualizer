@@ -1,6 +1,5 @@
 /env
 .env
-__pycache__/
 /.qodo
-
 .qodo
+__pycache__/
