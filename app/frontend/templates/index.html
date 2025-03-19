@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Visualizer PRO</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+ :root {
+            --primary-color: #2A2F4F;
+            --secondary-color: #4E4FEB;
+            --accent-color: #068FFF;
+            --light-bg: #F0F5F9;
+        }
+
+        body {
+            background: var(--light-bg);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        .main-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .main-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .nav-sidebar {
+            background: var(--primary-color);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .table-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .table-card {
+            background: white;
+            border: none;
+            color: var(--primary-color);
+            border-radius: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .table-card:hover {
+            background: var(--secondary-color);
+            color: white;
+            transform: scale(1.03);
+        }
+
+        .data-table {
+            background: white;
+            border-radius: 15px;
+            overflow-x: auto;
+        }
+
+        .data-table th {
+            background: var(--primary-color);
+            color: white;
+            position: sticky;
+            left: 0;
+        }
+
+        .gradient-btn {
+            background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+            border: none;
+            color: white;
+            padding: 12px 25px;
+            border-radius: 10px;
+        }
+
+        .stats-card {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+
+        .relationship-graph {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            min-height: 400px;
+            position: relative;
+            overflow: auto;
+        }
+
+        .export-btn-group {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            gap: 1rem;
+            z-index: 1000;
+        }
+
+        .schema-node {
+            background: var(--primary-color);
+            color: white;
+            padding: 1rem;
+            border-radius: 10px;
+            min-width: 180px;
+            position: absolute;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .relationship-path {
+            position: absolute;
+            border: 2px solid var(--accent-color);
+            transform-origin: left;
+        }
+
+        .stat-badge {
+            background: var(--light-bg);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+
+        .health-metric {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .table-hover-effect tr {
+            transition: all 0.2s ease;
+        }
+
+        .table-hover-effect tr:hover {
+            background: var(--light-bg);
+            transform: scale(1.01);
+        }
+
+        .export-modal {
+            background: rgba(0,0,0,0.4);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+            z-index: 2000;
+        }
+
+        .export-options {
+            background: white;
+            padding: 2rem;
+            border-radius: 15px;
+            max-width: 500px;
+            margin: 2rem auto;
+        }
+        .table-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .active-table {
+            background: var(--light-bg);
+            border: 2px solid var(--secondary-color);
+        }
+    </style>
+
+    <!-- Add this script section -->
+    <script>
+         let currentConnection = { id: null, database: null };
+         document.addEventListener('DOMContentLoaded', () => {
+        // Connection Handler
+        document.getElementById('connectionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = {
+                host: document.querySelector('[name="host"]').value,
+                database: document.querySelector('[name="database"]').value,
+                username: document.querySelector('[name="username"]').value,
+                password: document.querySelector('[name="password"]').value,
+                port: parseInt(document.querySelector('[name="port"]').value)
+            };
+
+            try {
+                const response = await fetch('/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error);
+                }
+                
+                const { connection_id, database } = await response.json();
+                currentConnection = { id: connection_id, database };
+                
+                document.getElementById('connectionContainer').style.display = 'none';
+                document.getElementById('mainInterface').classList.remove('d-none');
+                document.querySelector('#dbName').textContent = database;
+                await loadTables();
+            } catch (error) {
+                showError(error.message);
+            }
+        }); });
+// Modified loadTables function to handle table clicks properly
+async function loadTables() {
+    try {
+        const response = await fetch(`/tables?connection_id=${currentConnection.id}`);
+        const tables = await response.json();
+        const grid = document.querySelector('.table-grid');
+        
+        grid.innerHTML = tables.map(table => `
+            <div class="table-card p-3 text-center" onclick="loadTable('${table}')">
+                <div class="d-flex flex-column align-items-center">
+                    <i class="bi bi-table fs-1"></i>
+                    <h5 class="mt-2">${table}</h5>
+                </div>
+            </div>
+        `).join('');
+
+        if (tables.length > 0) {
+            await loadTable(tables[0]);
+            grid.querySelector('.table-card').classList.add('active-table');
+        }
+    } catch (error) {
+        showError(error.message);
+    }
+}
+async function loadTable(tableName, page = 1) {
+    try {
+        // Remove active class from all cards
+        document.querySelectorAll('.table-card').forEach(c => c.classList.remove('active-table'));
+        
+        // Add active class to clicked card
+        const cards = Array.from(document.querySelectorAll('.table-card'));
+        const activeCard = cards.find(card => card.querySelector('h5').textContent === tableName);
+        if (activeCard) activeCard.classList.add('active-table');
+
+        const response = await fetch(`/table/${tableName}?connection_id=${currentConnection.id}&page=${page}&per_page=25`);
+        const { columns, data, total } = await response.json();
+        
+        // Update Table Display
+        document.getElementById('tableName').innerHTML = `${tableName} <small class="text-muted">${columns.length} columns</small>`;
+        
+        // Populate Table
+        const thead = document.querySelector('thead');
+        const tbody = document.querySelector('tbody');
+        thead.innerHTML = `<tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr>`;
+        tbody.innerHTML = data.map(row => `
+            <tr>${columns.map(c => `<td>${row[c] || 'NULL'}</td>`).join('')}</tr>
+        `).join('');
+
+        // Store current data for searching
+        tbody.dataset.fullData = JSON.stringify(data);
+        updatePagination(total, page, tableName);
+        loadSchema(tableName);
+    } catch (error) {
+        showError(error.message);
+    }
+}
+
+        // Load Schema Relationships
+        async function loadSchema(tableName) {
+    try {
+        const response = await fetch(
+            `/schema/${tableName}?connection_id=${currentConnection.id}`
+        );
+        const { relationships } = await response.json();
+        
+        const svg = document.querySelector('#relationshipGraph');
+        svg.innerHTML = '';
+        
+        // SVG dimensions and spacing
+        const nodeWidth = 180;
+        const nodeHeight = 60;
+        const horizontalSpacing = 200;
+        const verticalSpacing = 120;
+        const startY = 80;
+
+        relationships.forEach((rel, index) => {
+            const yPos = startY + (index * verticalSpacing);
+            
+            // Source Node
+            const sourceX = 50;
+            svg.innerHTML += `
+                <rect x="${sourceX}" y="${yPos}" 
+                     width="${nodeWidth}" height="${nodeHeight}" 
+                     rx="10" fill="var(--primary-color)"/>
+                <text x="${sourceX + nodeWidth/2}" y="${yPos + nodeHeight/2 + 5}" 
+                      fill="white" text-anchor="middle" 
+                      font-size="14" dominant-baseline="middle">
+                    ${rel.TABLE_NAME}
+                </text>
+            `;
+
+            // Target Node
+            const targetX = sourceX + nodeWidth + horizontalSpacing;
+            svg.innerHTML += `
+                <rect x="${targetX}" y="${yPos}" 
+                     width="${nodeWidth}" height="${nodeHeight}" 
+                     rx="10" fill="var(--primary-color)"/>
+                <text x="${targetX + nodeWidth/2}" y="${yPos + nodeHeight/2 + 5}" 
+                      fill="white" text-anchor="middle" 
+                      font-size="14" dominant-baseline="middle">
+                    ${rel.REFERENCED_TABLE_NAME}
+                </text>
+            `;
+
+            // Connection Path
+            const pathStartX = sourceX + nodeWidth;
+            const pathEndX = targetX;
+            const controlPointX = (pathStartX + pathEndX) / 2;
+            
+            svg.innerHTML += `
+                <path d="M${pathStartX} ${yPos + nodeHeight/2} 
+                         Q${controlPointX} ${yPos + nodeHeight/2}, ${pathEndX} ${yPos + nodeHeight/2}" 
+                      stroke="var(--accent-color)" 
+                      stroke-width="2"
+                      fill="none"
+                      marker-end="url(#arrowhead)"/>
+            `;
+        });
+
+        // Add arrowhead marker definition once
+        if (!document.querySelector('#arrowhead')) {
+            svg.innerHTML = `
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                            refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent-color)"/>
+                    </marker>
+                </defs>
+                ${svg.innerHTML}
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading schema:', error);
+    }
+}
+
+    // Export Handler
+    document.addEventListener('click', async (e) => {
+        if (e.target.closest('.export-btn')) {
+            const format = e.target.closest('.export-btn').dataset.format;
+            const tableName = document.querySelector('#tableName').textContent.split(' ')[0];
+            
+            try {
+                const response = await fetch(
+                    `/export/${tableName}?connection_id=${currentConnection.id}&format=${format}`
+                );
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${tableName}_${new Date().toISOString()}.${format}`;
+                a.click();
+            } catch (error) {
+                showError(`Export failed: ${error.message}`);
+            }
+        }
+    });
+
+    // Search Implementation
+    document.querySelector('input[type="search"]').addEventListener('input', function(e) {
+        const searchTerm = e.target.value.toLowerCase();
+        const filteredData = currentTableData.filter(row =>
+            currentColumns.some(col =>
+                String(row[col]).toLowerCase().includes(searchTerm)
+         ) );
+        
+        document.querySelector('tbody').innerHTML = filteredData.map(row => `
+            <tr>${currentColumns.map(col => `<td>${row[col] || ''}</td>`).join('')}</tr>
+        `).join('');
+    });
+
+    // Helper Functions
+    function updatePagination(total, page, tableName) {
+        const totalPages = Math.ceil(total / 25);
+        const pagination = document.querySelector('.pagination');
+        
+        pagination.innerHTML = `
+            <li class="page-item ${page === 1 ? 'disabled' : ''}">
+                <a class="page-link" onclick="loadTable('${tableName}', ${page - 1})">Previous</a>
+            </li>
+            ${Array.from({length: totalPages}, (_, i) => `
+                <li class="page-item ${i + 1 === page ? 'active' : ''}">
+                    <a class="page-link" onclick="loadTable('${tableName}', ${i + 1})">${i + 1}</a>
+                </li>
+            `).join('')}
+            <li class="page-item ${page === totalPages ? 'disabled' : ''}">
+                <a class="page-link" onclick="loadTable('${tableName}', ${page + 1})">Next</a>
+            </li>
+        `;
+    }
+
+    function showError(message) {
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-danger position-fixed top-0 end-0 m-3';
+        alert.textContent = message;
+        document.body.appendChild(alert);
+        setTimeout(() => alert.remove(), 5000);
+    }
+    </script>
+</head>
+<body>
+ <!-- Connection Interface -->
+ <div class="container py-5" id="connectionContainer">
+    <div class="main-card p-5">
+        <h1 class="mb-4 text-center"><i class="bi bi-database"></i> DB Visualizer PRO</h1>
+        <form id="connectionForm" class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Host</label>
+                <input type="text" class="form-control" name="host" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Database</label>
+                <input type="text" class="form-control" name="database" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Username</label>
+                <input type="text" class="form-control" name="username" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-control" name="password" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Port</label>
+                <input type="number" class="form-control" name="port" value="3306">
+            </div>
+            <div class="text-center mt-4">
+                <button type="submit" class="gradient-btn">
+                    <i class="bi bi-plug"></i> Connect
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- Main Interface -->
+<div class="container-fluid d-none" id="mainInterface">
+    <div class="row">
+        <nav class="nav-sidebar col-md-3">
+            <h3 class="mb-4">Connected to: <span class="text-info"  id="dbName"></span></h3>
+
+            <!-- Tables List -->
+            <h5 class="mb-3 text-center"><i class="bi bi-grid"></i> Tables</h5>
+            <div class="table-grid"></div>
+        </nav>
+            <!-- Main Content -->
+            <main class="col-md-9 p-4">
+                <!-- Table Viewer -->
+                <div class="data-table p-4">
+                    <div class="d-flex justify-content-between mb-4">
+                        <h3 id="tableName"><i class="bi bi-grid"></i> </h3>
+                        <form class="d-flex gap-2">
+                            <input type="text" class="form-control" placeholder="Search...">
+                            <button class="gradient-btn">Filter</button>
+                        </form>
+                    </div>
+
+                    <!-- Relationship Visualization -->
+                    <div class="relationship-graph mb-4">
+                        <h5 class="mb-3"><i class="bi bi-diagram-3"></i> Relationships</h5>
+                        <svg id="relationshipGraph" width="100%" height="300"></svg>
+                    </div>
+                            
+                    <table class="table table-hover table-hover-effect">
+                        <thead></thead>
+                        <tbody></tbody>
+                    </table>
+
+                    <!-- Pagination -->
+                     <div class="d-flex justify-content-between mt-4">
+                        <div id="rowCount" class="text-muted">Showing 1-25 of 1000 rows</div>
+                    <nav >
+                        <ul class="pagination justify-content-center"></ul>
+                    </nav>
+                    <div>
+                        <button class="btn btn-primary btn-sm shadow-lg export-btn" data-format="csv">
+                            <i class="bi bi-filetype-csv"></i> CSV
+                        </button>
+                        <button class="btn btn-success btn-sm shadow-lg export-btn" data-format="json">
+                            <i class="bi bi-filetype-json"></i> JSON
+                        </button>
+                        <button class="btn btn-danger btn-sm shadow-lg export-btn" data-format="sql">
+                            <i class="bi bi-filetype-sql"></i> SQL
+                        </button>
+                    </div>
+                    </div>
+                </div>
+                    <!-- Add No Tables Modal -->
+            <div class="modal fade" id="noTablesModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">No Tables Found</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            The selected database doesn't contain any tables.
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            </main>
+    </div>
+</div>
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
