@@ -48,13 +48,13 @@ class MySQLConnectionManager:
 
 mysql_manager = MySQLConnectionManager()
 
-BASE_DIR = Path(__file__).resolve().parent  # directory of main.py
-FRONTEND_DIR = BASE_DIR.parent / "frontend" / "templates"  # go up from "backend" to "app", then into "frontend/templates"
+# BASE_DIR = Path(__file__).resolve().parent  # directory of main.py
+# FRONTEND_DIR = BASE_DIR.parent / "frontend" / "templates"  # go up from "backend" to "app", then into "frontend/templates"
 
-@app.get("/")
-async def index():
-    file_path = FRONTEND_DIR / "index.html"
-    return FileResponse(str(file_path))
+# @app.get("/")
+# async def index():
+#     file_path = FRONTEND_DIR / "index.html"
+#     return FileResponse(str(file_path))
 
 
 # @app.post("/connect")
